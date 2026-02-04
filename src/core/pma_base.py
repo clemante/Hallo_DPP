@@ -73,10 +73,14 @@ class PMActivity:
                 - 1
             )
         else:
-            print("ERROR: No data for this time range...")
+            print(
+                f"Warning: No data for this time range: {day=}, {start_hour=}, {end_hour=}"
+            )
             return None
         if sta_index < 0 or end_index >= self.activity_timeseries.shape[0]:
-            print("ERROR: No data for this time range...")
+            print(
+                f"Warning: No data for this time range: {day=}, {start_hour=}, {end_hour=}"
+            )
             return None
         else:
             return self.activity_timeseries.loc[
@@ -92,10 +96,12 @@ class PMActivity:
         """
         o_a_list_all_days = {}
         for day in range(self.meas_full_days + 2):
-            df = self.activity_day_from_to_hour(self, start_hour, end_hour)
+            df = self.activity_day_from_to_hour(day, start_hour, end_hour)
             if df is not None:
-                o_a_list_day = sorted(df.loc[start_index:end_index, "activity"])
-                o_a_list_all_days[day] = o_a_list_day
+                o_a_list_day = sorted(df.loc[:, "activity"], reverse=True)
+                o_a_list_all_days[f"day_{day}"] = o_a_list_day
+            else:
+                o_a_list_all_days[f"day_{day}"] = None
         return o_a_list_all_days
 
     def ordered_activity_24h(self, day=0, offset_minutes=0):
