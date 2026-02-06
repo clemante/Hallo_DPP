@@ -23,6 +23,7 @@ class PMActivity:
         self.meas_minutes_to_12pm = None
 
         self._calc_time_series_props()
+        self._calc_smooth()
 
     def _calc_time_series_props(self):
         activity = self.activity_timeseries.loc[:, ["timestamp", "activity"]]
@@ -41,6 +42,14 @@ class PMActivity:
         self.meas_full_days = (
             self.activity_timeseries.shape[0] - self.meas_minutes_to_12pm
         ) // 1440
+
+    def _calc_smooth(self):
+        for window in [10, 30, 60, 120, 180]:
+            self.activity_timeseries.loc[:, f"smo{window}"] = (
+                self.activity_timeseries.loc[:, "activity"]
+                .rolling(window=window, center=True)
+                .mean()
+            )
 
     def activity_day_from_to_hour(self, day, start_hour, end_hour):
         """
@@ -73,14 +82,8 @@ class PMActivity:
                 - 1
             )
         else:
-            print(
-                f"Warning: No data for this time range: {day=}, {start_hour=}, {end_hour=}"
-            )
             return None
         if sta_index < 0 or end_index >= self.activity_timeseries.shape[0]:
-            print(
-                f"Warning: No data for this time range: {day=}, {start_hour=}, {end_hour=}"
-            )
             return None
         else:
             return self.activity_timeseries.loc[
@@ -89,11 +92,15 @@ class PMActivity:
 
     def ordered_activities(self, start_hour=0, end_hour=24):
         """
-        returns a list if
+        returns a dictionary of
         :param self: Description
         :param sta_hour: Description
         :param end_hour: Description
+        dictionary keys: "day_{daynumber}" for specific day (initial day=0)
+                         "median" for the median of each position
         """
+        import statistics as stat
+
         o_a_list_all_days = {}
         for day in range(self.meas_full_days + 2):
             df = self.activity_day_from_to_hour(day, start_hour, end_hour)
@@ -102,19 +109,34 @@ class PMActivity:
                 o_a_list_all_days[f"day_{day}"] = o_a_list_day
             else:
                 o_a_list_all_days[f"day_{day}"] = None
+
+        median_values = []
+        for m in range(60 * (end_hour - start_hour)):
+            values = []
+            for key in o_a_list_all_days.keys():
+                ord_act = o_a_list_all_days[key]
+                #                        requirement: 12 h of non-zero data
+                if ord_act is not None:  # and (ord_act[720] > 0):
+                    values.append(ord_act[m])
+            median_values.append(stat.median(values))
+        o_a_list_all_days["median"] = median_values
         return o_a_list_all_days
+
+    def plot_ordered_activities(self, ax, start_hour=0, end_hour=24):
+        dict_acties = self.ordered_activities(start_hour, end_hour)
+        for key in dict_acties.keys():
+            ord_act = dict_acties[key]
+            col = "grey"
+            if ord_act is not None:
+                if key == "median":
+                    col = "red"
+                ax.plot(ord_act, label=key, color=col)
+        ax.legend(fontsize=2, handlelength=1, labelspacing=0.3)
+        ax.text(100, 800, f"{start_hour}-{end_hour}")
 
     def ordered_activity_24h(self, day=0, offset_minutes=0):
         start_index = 1440 * day + offset_minutes
         end_index = 1440 * (day + 1) + offset_minutes
-        return sorted(
-            self.activity_timeseries.loc[start_index:end_index, "activity"],
-            reverse=True,
-        )
-
-    def ordered_activity_0am12pm(self, day=0):
-        start_index = 1440 * day + self.meas_minutes_to_12pm + 0 * 60
-        end_index = 1440 * day + self.meas_minutes_to_12pm + 24 * 60
         return sorted(
             self.activity_timeseries.loc[start_index:end_index, "activity"],
             reverse=True,
@@ -128,13 +150,34 @@ class PMActivity:
             ax.legend(fontsize=2, handlelength=1, labelspacing=0.3)
             ax.set_title(data_id)
 
-    def plot_ordered_activity_8am10pm(self, ax, data_id):
-        import math
+    def smoothed_activities(self, start_hour=0, end_hour=24, window=15):
+        import statistics as stat
 
-        for day in range(math.floor(self.meas_days) - 1):
-            ax.plot(self.ordered_activity_8am10pm(day, 0), label=f"day {day}")
-            ax.legend(fontsize=2, handlelength=1, labelspacing=0.3)
-            ax.set_title(data_id)
+        import numpy as np
+
+        kernel = np.ones(window) / window
+        smooth_a_dict_all_days = {}
+        for day in range(self.meas_full_days + 2):
+            df = self.activity_day_from_to_hour(day, start_hour, end_hour)
+            if df is not None:
+                smooth_a_list_day = np.convolve(
+                    df.loc[:, "activity"], kernel, mode="valid"
+                )
+                smooth_a_dict_all_days[f"day_{day}"] = smooth_a_list_day
+            else:
+                smooth_a_dict_all_days[f"day_{day}"] = None
+
+        median_values = []
+        for m in range(60 * (end_hour - start_hour) - window):
+            values = []
+            for key in smooth_a_dict_all_days.keys():
+                ord_act = smooth_a_dict_all_days[key]
+                #                        requirement: 12 h of non-zero data
+                if ord_act is not None:  # and (ord_act[720] > 0):
+                    values.append(ord_act[m])
+            median_values.append(stat.median(values))
+        smooth_a_dict_all_days["median"] = median_values
+        return smooth_a_dict_all_days
 
 
 class PMAPerson:
@@ -183,33 +226,3 @@ class PMADataADHDKaggle(PMAPerson):
 if __name__ == "__main__":
     p = PMADataADHDKaggle("control_1")
     print(p.age)
-    print(p.diag)
-
-    # some code for tests
-    dir_data_raw = "../../data/raw/psychiatric-motor-activity-dataset/"
-    dis = "adhd"
-    print(dis)
-    # dis = 'depression'
-    # dis = 'schizophrenia'
-    # dis = 'clinic'
-    # dis = 'control'
-    pat = "1"
-    # import os
-    # os.listdir(dir_data_raw + dis + '/')
-    # filename=#
-    import pandas as pd
-
-    acty_rawfile = dir_data_raw + dis + "/" + dis + "_" + pat + ".csv"
-    df = pd.read_csv(acty_rawfile, parse_dates=["timestamp"])
-    print(df.head())
-
-    bla = PMActivity(df)
-    print(type(bla.meas_begin_time.minute))
-    print(bla.meas_end_datetime)
-    print(bla.meas_duration.days)
-    print(bla.meas_duration)
-    print(bla.meas_days)
-    print(bla.meas_minutes)
-    print(bla.meas_minutes_to_12pm)
-
-    print(bla.ordered_activity_24h()[0:20])
