@@ -23,7 +23,7 @@ class PMActivity:
         self.meas_minutes_to_12pm = None
 
         self._calc_time_series_props()
-        self._calc_smooth()
+        self.calc_smooth(list([10, 30, 60, 120, 180]))
 
     def _calc_time_series_props(self):
         activity = self.activity_timeseries.loc[:, ["timestamp", "activity"]]
@@ -43,12 +43,25 @@ class PMActivity:
             self.activity_timeseries.shape[0] - self.meas_minutes_to_12pm
         ) // 1440
 
-    def _calc_smooth(self):
-        for window in [10, 30, 60, 120, 180]:
+    def calc_smooth(self, window_list):
+        for window in window_list:
             self.activity_timeseries.loc[:, f"smo{window}"] = (
                 self.activity_timeseries.loc[:, "activity"]
                 .rolling(window=window, center=True)
                 .mean()
+            )
+            self.activity_timeseries.loc[:, f"smo{window}std"] = (
+                self.activity_timeseries.loc[:, "activity"]
+                .rolling(window=window, center=True)
+                .std()
+            )
+            self.activity_timeseries.loc[:, f"smo{window}ratio"] = (
+                (
+                    self.activity_timeseries.loc[:, f"smo{window}std"]
+                    / self.activity_timeseries.loc[:, f"smo{window}"]
+                )
+                .where(self.activity_timeseries.loc[:, f"smo{window}"] != 0)
+                .fillna(0)
             )
 
     def activity_day_from_to_hour(self, day, start_hour, end_hour):
@@ -59,7 +72,8 @@ class PMActivity:
         :param self: Description
         :param day: considered day, 0 for initial, incomplete day
                                     1 for first full day
-                                   -1 for final, incomplete day
+                  self.meas_full_days for last  full day
+                                   -1 for final,   incomplete day
         :param start_hour: 0 to 23
         :param end_hour: 1 to 24 (exclusive last minute)
         Example: day=0, start_hour=23, end_hour=24 returns 60 entries from
@@ -134,6 +148,7 @@ class PMActivity:
         ax.legend(fontsize=2, handlelength=1, labelspacing=0.3)
         ax.text(100, 800, f"{start_hour}-{end_hour}")
 
+    # deprecated?
     def ordered_activity_24h(self, day=0, offset_minutes=0):
         start_index = 1440 * day + offset_minutes
         end_index = 1440 * (day + 1) + offset_minutes
@@ -142,6 +157,7 @@ class PMActivity:
             reverse=True,
         )
 
+    # deprecated?
     def plot_ordered_activity_24h(self, ax, data_id):
         import math
 
@@ -150,6 +166,7 @@ class PMActivity:
             ax.legend(fontsize=2, handlelength=1, labelspacing=0.3)
             ax.set_title(data_id)
 
+    # deprecated?
     def smoothed_activities(self, start_hour=0, end_hour=24, window=15):
         import statistics as stat
 
